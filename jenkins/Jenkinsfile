@@ -1,0 +1,104 @@
+pipeline {
+    agent any
+
+    environment {
+        APP_IMAGE_NAME = 'demo-service'
+        ML_IMAGE_NAME  = 'ml-anomaly-detector'
+        REGISTRY_URL   = '123456789012.dkr.ecr.us-east-1.amazonaws.com'
+        AWS_REGION     = 'us-east-1'
+        K8S_TARGET_ENV = 'minikube' // Options: 'minikube' or 'eks'
+    }
+
+    options {
+        timeout(time: 30, unit: 'MINUTES')
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        ansiColor('xterm')
+    }
+
+    stages {
+        stage('Checkout & Setup') {
+            steps {
+                echo 'Checking out source repository...'
+                checkout scm
+                script {
+                    env.GIT_COMMIT_SHORT = sh(script: 'git rev-parse --short HEAD || echo "latest"', returnStdout: true).trim()
+                }
+            }
+        }
+
+        stage('Lint & Code Format') {
+            steps {
+                sh 'chmod +x jenkins/scripts/*.sh'
+                sh './jenkins/scripts/lint.sh'
+            }
+        }
+
+        stage('Unit & Integration Tests') {
+            steps {
+                sh './jenkins/scripts/test.sh'
+            }
+        }
+
+        stage('Security & Secret Scan') {
+            steps {
+                sh './jenkins/scripts/security-scan.sh'
+            }
+        }
+
+        stage('Build Docker Images') {
+            steps {
+                echo "Building Docker Images (Tag: ${env.GIT_COMMIT_SHORT})..."
+                sh "docker build -f docker/Dockerfile.app -t ${APP_IMAGE_NAME}:${env.GIT_COMMIT_SHORT} ."
+                sh "docker build -f docker/Dockerfile.ml -t ${ML_IMAGE_NAME}:${env.GIT_COMMIT_SHORT} ."
+            }
+        }
+
+        stage('Push Images to ECR') {
+            when {
+                expression { return env.K8S_TARGET_ENV == 'eks' }
+            }
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'aws-ecr-credentials', usernameVariable: 'AWS_ACCESS_KEY_ID', passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+                    sh """
+                        aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${REGISTRY_URL}
+                        docker tag ${APP_IMAGE_NAME}:${env.GIT_COMMIT_SHORT} ${REGISTRY_URL}/${APP_IMAGE_NAME}:${env.GIT_COMMIT_SHORT}
+                        docker tag ${ML_IMAGE_NAME}:${env.GIT_COMMIT_SHORT} ${REGISTRY_URL}/${ML_IMAGE_NAME}:${env.GIT_COMMIT_SHORT}
+                        docker push ${REGISTRY_URL}/${APP_IMAGE_NAME}:${env.GIT_COMMIT_SHORT}
+                        docker push ${REGISTRY_URL}/${ML_IMAGE_NAME}:${env.GIT_COMMIT_SHORT}
+                    """
+                }
+            }
+        }
+
+        stage('Deploy to Kubernetes') {
+            steps {
+                withCredentials([file(credentialsId: 'kubeconfig-file', variable: 'KUBECONFIG')]) {
+                    echo "Deploying manifests to ${env.K8S_TARGET_ENV} overlay..."
+                    sh "kubectl apply -k k8s/overlays/${env.K8S_TARGET_ENV}"
+                    sh "kubectl rollout status deployment/demo-service -n ai-monitoring --timeout=120s || true"
+                    sh "kubectl rollout status deployment/ml-anomaly-detector -n ai-monitoring --timeout=120s || true"
+                }
+            }
+        }
+
+        stage('Post-Deploy Smoke Test') {
+            steps {
+                echo "Verifying cluster workloads status..."
+                sh "kubectl get pods -n ai-monitoring -o wide"
+                sh "kubectl get svc -n ai-monitoring"
+            }
+        }
+    }
+
+    post {
+        always {
+            cleanWs()
+        }
+        success {
+            echo "CI/CD Pipeline executed successfully for commit ${env.GIT_COMMIT_SHORT}!"
+        }
+        failure {
+            echo "CI/CD Pipeline FAILED! Please inspect stage output logs."
+        }
+    }
+}

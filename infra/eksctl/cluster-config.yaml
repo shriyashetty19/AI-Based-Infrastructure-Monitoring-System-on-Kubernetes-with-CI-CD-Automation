@@ -1,0 +1,33 @@
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: ai-monitoring-cluster
+  region: us-east-1
+  version: "1.29"
+  tags:
+    environment: production
+    managed-by: eksctl
+
+vpc:
+  cidr: 10.0.0.0/16
+  nat:
+    gateway: HighlyAvailable
+
+managedNodeGroups:
+  - name: ng-ai-monitoring-nodes
+    instanceType: t3.medium
+    desiredCapacity: 2
+    minSize: 1
+    maxSize: 4
+    volumeSize: 20
+    ssh:
+      allow: false
+    iam:
+      withAddonPolicies:
+        autoScaler: true
+        albIngress: true
+        cloudWatch: true
+
+iam:
+  withOIDC: true
