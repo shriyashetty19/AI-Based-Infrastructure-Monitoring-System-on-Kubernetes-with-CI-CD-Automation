@@ -1,0 +1,42 @@
+# ServiceMonitor CRDs (prometheus-operator, installed by kube-prometheus-stack)
+# replacing the static scrape_configs in monitoring/prometheus/prometheus-config.yaml
+# with the operator-native equivalent. Matches k8s/base/app-service.yaml and
+# k8s/base/ml-service.yaml by their `app` label selector and named `http` port.
+
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: demo-service
+  namespace: ai-monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  namespaceSelector:
+    matchNames:
+      - ai-monitoring
+  selector:
+    matchLabels:
+      app: demo-service
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: ml-anomaly-detector
+  namespace: ai-monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  namespaceSelector:
+    matchNames:
+      - ai-monitoring
+  selector:
+    matchLabels:
+      app: ml-anomaly-detector
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s

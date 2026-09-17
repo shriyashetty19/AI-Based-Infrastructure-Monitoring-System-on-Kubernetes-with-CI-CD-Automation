@@ -1,0 +1,49 @@
+groups:
+  - name: infrastructure_alerts
+    rules:
+      - alert: HighCpuUsage
+        expr: simulated_cpu_usage_percent > 85
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage detected on {{ $labels.instance }}"
+          description: "Simulated CPU usage exceeded 85% for more than 2 minutes."
+
+      - alert: HighMemoryUsage
+        expr: simulated_memory_usage_bytes > 268435456
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High Memory usage detected on {{ $labels.instance }}"
+          description: "Simulated memory usage exceeded 256MB for 2 minutes."
+
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service target {{ $labels.instance }} is down"
+          description: "Prometheus scrape target has been unreachable for 1 minute."
+
+  - name: ai_anomaly_alerts
+    rules:
+      - alert: AIInfrastructureAnomalyFlagged
+        expr: ai_anomaly_flag == 1
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "AI Anomaly Detector Flagged Infrastructure Anomaly"
+          description: "Isolation Forest model flagged anomalous telemetry pattern (Confidence > 85%)."
+
+      - alert: AIAnomalyScoreCritical
+        expr: ai_anomaly_score < -0.15
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Isolation Forest Decision Score Critical"
+          description: "Anomaly decision score fell below -0.15 threshold indicating severe deviance from normal baseline."
